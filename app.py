@@ -4,6 +4,7 @@ import json
 import base64
 import requests
 import logging
+import phonenumbers
 
 app = Flask(__name__)
 
@@ -33,7 +34,23 @@ def log_request_info():
 
 @app.route('/candidate/<phone_number>', methods=['GET'])
 def get_candidate_info_and_url(phone_number):
-    target_phone_number = phone_number
+    # Normalize the input phone number
+    try:
+        # Attempt to parse with no region first
+        input_number = phonenumbers.parse(phone_number, None)
+    except phonenumbers.NumberParseException:
+        # If parsing fails, assume default country (e.g., 'NO' for Norway)
+        try:
+            input_number = phonenumbers.parse(phone_number, 'NO')
+        except phonenumbers.NumberParseException:
+            logger.error(f"Invalid phone number format: {phone_number}")
+            return jsonify({'error': 'Invalid phone number format.'}), 400
+
+    normalized_input_number = phonenumbers.format_number(
+        input_number, phonenumbers.PhoneNumberFormat.E164
+    )
+
+    target_phone_number = normalized_input_number
     next_cursor = None
     candidate_found = False
 
@@ -47,7 +64,7 @@ def get_candidate_info_and_url(phone_number):
     candidate_info = None
 
     # Log the beginning of the candidate search
-    logger.info(f"Starting search for candidate with phone number: {phone_number}")
+    logger.info(f"Starting search for candidate with phone number: {target_phone_number}")
 
     # Search for the candidate using the Teamtailor API
     while True:
@@ -68,19 +85,37 @@ def get_candidate_info_and_url(phone_number):
             # Iterate through the candidates
             for candidate in candidates:
                 phone = candidate['attributes'].get('phone')
-                if phone == target_phone_number:
-                    # Candidate found
-                    first_name = candidate['attributes'].get('first-name', '')
-                    last_name = candidate['attributes'].get('last-name', '')
-                    email = candidate['attributes'].get('email', '')
-                    candidate_info = {
-                        'first_name': first_name,
-                        'last_name': last_name,
-                        'email': email
-                    }
-                    candidate_found = True
-                    logger.info(f"Candidate found: {first_name} {last_name}")
-                    break
+                if phone:
+                    # Normalize the stored phone number
+                    try:
+                        stored_number = phonenumbers.parse(phone, None)
+                    except phonenumbers.NumberParseException:
+                        # Try parsing with default country code
+                        try:
+                            stored_number = phonenumbers.parse(phone, 'NO')
+                        except phonenumbers.NumberParseException:
+                            # Skip if the stored phone number is invalid
+                            logger.warning(f"Invalid stored phone number format: {phone}")
+                            continue
+
+                    normalized_stored_number = phonenumbers.format_number(
+                        stored_number, phonenumbers.PhoneNumberFormat.E164
+                    )
+
+                    # Compare the normalized phone numbers
+                    if normalized_stored_number == target_phone_number:
+                        # Candidate found
+                        first_name = candidate['attributes'].get('first-name', '')
+                        last_name = candidate['attributes'].get('last-name', '')
+                        email = candidate['attributes'].get('email', '')
+                        candidate_info = {
+                            'first_name': first_name,
+                            'last_name': last_name,
+                            'email': email
+                        }
+                        candidate_found = True
+                        logger.info(f"Candidate found: {first_name} {last_name}")
+                        break
 
             # Break if candidate is found
             if candidate_found:
