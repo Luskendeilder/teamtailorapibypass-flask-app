@@ -130,11 +130,13 @@ def get_candidate_info_and_url(phone_number):
             logger.error(f"Error fetching data from Teamtailor: {response.status_code} - {response.text}")
             return jsonify({'error': 'Error fetching data from Teamtailor.'}), response.status_code
 
-    # Prepare the response
+    # Prepare the response with ttquery nested
     response_data = {
         'candidate_info': candidate_info,
-        'base64_query': base64_query,
-        'teamtailor_url': teamtailor_url
+        'ttquery': {
+            'base64_query': base64_query,
+            'teamtailor_url': teamtailor_url
+        }
     }
 
     if candidate_info:
@@ -144,8 +146,10 @@ def get_candidate_info_and_url(phone_number):
         logger.info("No candidate found with that phone number.")
         return jsonify({
             'error': 'No candidate found with that phone number.',
-            'base64_query': base64_query,
-            'teamtailor_url': teamtailor_url
+            'ttquery': {
+                'base64_query': base64_query,
+                'teamtailor_url': teamtailor_url
+            }
         }), 404
 
 @app.after_request
