@@ -1,4 +1,4 @@
-from flask import Flask, redirect, jsonify
+from flask import Flask, jsonify
 import os
 import json
 import base64
@@ -18,16 +18,26 @@ headers = {
 }
 
 @app.route('/candidate/<phone_number>', methods=['GET'])
-def get_candidate_info(phone_number):
+def get_candidate_info_and_url(phone_number):
     target_phone_number = phone_number
     next_cursor = None
+    candidate_found = False
 
+    # Prepare the base64-encoded query and Teamtailor URL
+    query_object = {"query": phone_number, "root":[]}
+    query_json = json.dumps(query_object, separators=(',', ':'))
+    base64_query = base64.b64encode(query_json.encode('utf-8')).decode('utf-8')
+    teamtailor_url = f"https://app.teamtailor.com/companies/{COMPANY_ID}/candidates/segment/all?q={base64_query}"
+
+    # Initialize candidate information
+    candidate_info = None
+
+    # Search for the candidate using the Teamtailor API
     while True:
         params = {}
         if next_cursor:
             params['page[after]'] = next_cursor
 
-        # Make the GET request to the candidates endpoint
         response = requests.get('https://api.teamtailor.com/v1/candidates', headers=headers, params=params)
 
         if response.status_code == 200:
@@ -42,13 +52,17 @@ def get_candidate_info(phone_number):
                     first_name = candidate['attributes'].get('first-name', '')
                     last_name = candidate['attributes'].get('last-name', '')
                     email = candidate['attributes'].get('email', '')
-
-                    # Return the candidate's name and email
-                    return jsonify({
+                    candidate_info = {
                         'first_name': first_name,
                         'last_name': last_name,
                         'email': email
-                    })
+                    }
+                    candidate_found = True
+                    break
+
+            # Break if candidate is found
+            if candidate_found:
+                break
 
             # Check for pagination
             next_cursor = data.get('meta', {}).get('cursors', {}).get('after')
@@ -57,18 +71,21 @@ def get_candidate_info(phone_number):
         else:
             return jsonify({'error': 'Error fetching data from Teamtailor.'}), response.status_code
 
-    return jsonify({'error': 'No candidate found with that phone number.'}), 404
+    # Prepare the response
+    response_data = {
+        'candidate_info': candidate_info,
+        'base64_query': base64_query,
+        'teamtailor_url': teamtailor_url
+    }
 
-@app.route('/candidateurl/<phone_number>', methods=['GET'])
-def get_candidate_url(phone_number):
-    # Step 1: Create the JSON object
-    query_object = {"query": phone_number, "root":[]}
-    # Step 2: Convert to JSON string without spaces
-    query_json = json.dumps(query_object, separators=(',', ':'))
-    # Step 3: Base64 encode the JSON string
-    query_base64 = base64.b64encode(query_json.encode('utf-8')).decode('utf-8')
-    # Return the base64-encoded query string
-    return jsonify({'base64_query': query_base64})
+    if candidate_info:
+        return jsonify(response_data)
+    else:
+        return jsonify({
+            'error': 'No candidate found with that phone number.',
+            'base64_query': base64_query,
+            'teamtailor_url': teamtailor_url
+        }), 404
 
 if __name__ == '__main__':
     app.run()
