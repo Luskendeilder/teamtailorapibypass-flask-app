@@ -62,6 +62,8 @@ def get_candidate_info_and_url(phone_number):
 
     # Initialize candidate information
     candidate_info = None
+    candidate_id = None
+    applied_jobs = []
 
     # Log the beginning of the candidate search
     logger.info(f"Starting search for candidate with phone number: {target_phone_number}")
@@ -113,6 +115,7 @@ def get_candidate_info_and_url(phone_number):
                             'last_name': last_name,
                             'email': email
                         }
+                        candidate_id = candidate['id']
                         candidate_found = True
                         logger.info(f"Candidate found: {first_name} {last_name}")
                         break
@@ -130,9 +133,40 @@ def get_candidate_info_and_url(phone_number):
             logger.error(f"Error fetching data from Teamtailor: {response.status_code} - {response.text}")
             return jsonify({'error': 'Error fetching data from Teamtailor.'}), response.status_code
 
+    # If candidate is found, fetch their applications
+    if candidate_found and candidate_id:
+        applications_url = f"https://api.teamtailor.com/v1/candidates/{candidate_id}/applications"
+        params = {
+            'include': 'job'
+        }
+        try:
+            response_applications = requests.get(applications_url, headers=headers, params=params)
+            if response_applications.status_code == 200:
+                applications_data = response_applications.json()
+                included = applications_data.get('included', [])
+                jobs_dict = {item['id']: item for item in included if item['type'] == 'jobs'}
+
+                # Iterate over applications to get job details
+                for application in applications_data.get('data', []):
+                    job_id = application['relationships']['job']['data']['id']
+                    job = jobs_dict.get(job_id)
+                    if job:
+                        job_title = job['attributes'].get('title')
+                        applied_jobs.append({
+                            'job_id': job_id,
+                            'job_title': job_title
+                        })
+            else:
+                logger.error(f"Error fetching applications: {response_applications.status_code} - {response_applications.text}")
+        except Exception as e:
+            logger.error(f"Exception occurred while fetching applications: {e}")
+    else:
+        applied_jobs = None
+
     # Prepare the response with ttquery nested
     response_data = {
         'candidate_info': candidate_info,
+        'applied_jobs': applied_jobs,
         'ttquery': {
             'base64_query': base64_query,
             'teamtailor_url': teamtailor_url
