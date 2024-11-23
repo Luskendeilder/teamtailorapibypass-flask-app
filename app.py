@@ -23,7 +23,7 @@ COMPANY_ID = os.environ.get('COMPANY_ID')    # Your Teamtailor company ID
 headers = {
     'Authorization': f'Token token={API_KEY}',
     'Content-Type': 'application/vnd.api+json',
-    'X-Api-Version': '20240904'
+    'X-Api-Version': '20240904'  # Use the appropriate API version
 }
 
 @app.before_request
@@ -133,9 +133,9 @@ def get_candidate_info_and_url(phone_number):
             logger.error(f"Error fetching data from Teamtailor: {response.status_code} - {response.text}")
             return jsonify({'error': 'Error fetching data from Teamtailor.'}), response.status_code
 
-    # If candidate is found, fetch their applications
+    # If candidate is found, fetch their job applications
     if candidate_found and candidate_id:
-        applications_url = f"https://api.teamtailor.com/v1/candidates/{candidate_id}/applications"
+        applications_url = f"https://api.teamtailor.com/v1/candidates/{candidate_id}/job-applications"
         params = {
             'include': 'job'
         }
@@ -143,23 +143,28 @@ def get_candidate_info_and_url(phone_number):
             response_applications = requests.get(applications_url, headers=headers, params=params)
             if response_applications.status_code == 200:
                 applications_data = response_applications.json()
+                job_applications = applications_data.get('data', [])
                 included = applications_data.get('included', [])
+
+                # Create a mapping of job IDs to job data
                 jobs_dict = {item['id']: item for item in included if item['type'] == 'jobs'}
 
                 # Iterate over applications to get job details
-                for application in applications_data.get('data', []):
-                    job_id = application['relationships']['job']['data']['id']
-                    job = jobs_dict.get(job_id)
-                    if job:
-                        job_title = job['attributes'].get('title')
-                        applied_jobs.append({
-                            'job_id': job_id,
-                            'job_title': job_title
-                        })
+                for application in job_applications:
+                    job_data = application['relationships'].get('job', {}).get('data')
+                    if job_data:
+                        job_id = job_data.get('id')
+                        job = jobs_dict.get(job_id)
+                        if job:
+                            job_title = job['attributes'].get('title')
+                            applied_jobs.append({
+                                'job_id': job_id,
+                                'job_title': job_title
+                            })
             else:
-                logger.error(f"Error fetching applications: {response_applications.status_code} - {response_applications.text}")
+                logger.error(f"Error fetching job applications: {response_applications.status_code} - {response_applications.text}")
         except Exception as e:
-            logger.error(f"Exception occurred while fetching applications: {e}")
+            logger.error(f"Exception occurred while fetching job applications: {e}")
     else:
         applied_jobs = None
 
