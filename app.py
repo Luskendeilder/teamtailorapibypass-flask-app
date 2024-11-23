@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Set to DEBUG for detailed logs
     format='%(asctime)s %(levelname)s [%(name)s] %(message)s',
 )
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ COMPANY_ID = os.environ.get('COMPANY_ID')    # Your Teamtailor company ID
 headers = {
     'Authorization': f'Token token={API_KEY}',
     'Content-Type': 'application/vnd.api+json',
-    'X-Api-Version': '20240904'  # Use the appropriate API version
+    'X-Api-Version': '20240404'  # Use the appropriate API version
 }
 
 @app.before_request
@@ -49,9 +49,10 @@ def get_candidate_info_and_url(phone_number):
     normalized_input_number = phonenumbers.format_number(
         input_number, phonenumbers.PhoneNumberFormat.E164
     )
+    logger.debug(f"Normalized input phone number: {normalized_input_number}")
 
     target_phone_number = normalized_input_number
-    next_cursor = None
+    page_number = 1
     candidate_found = False
 
     # Prepare the base64-encoded query and Teamtailor URL
@@ -70,9 +71,10 @@ def get_candidate_info_and_url(phone_number):
 
     # Search for the candidate using the Teamtailor API
     while True:
-        params = {}
-        if next_cursor:
-            params['page[after]'] = next_cursor
+        params = {
+            'page[size]': 30,  # Maximum allowed page size
+            'page[number]': page_number
+        }
 
         try:
             response = requests.get('https://api.teamtailor.com/v1/candidates', headers=headers, params=params)
@@ -84,25 +86,33 @@ def get_candidate_info_and_url(phone_number):
             data = response.json()
             candidates = data.get('data', [])
 
+            if not candidates:
+                logger.info("No more candidates to process.")
+                break
+
             # Iterate through the candidates
             for candidate in candidates:
-                phone = candidate['attributes'].get('phone')
-                if phone:
+                candidate_phone = candidate['attributes'].get('phone')
+                candidate_id = candidate['id']
+                logger.debug(f"Processing candidate ID: {candidate_id}, Phone: {candidate_phone}")
+
+                if candidate_phone:
                     # Normalize the stored phone number
                     try:
-                        stored_number = phonenumbers.parse(phone, None)
+                        stored_number = phonenumbers.parse(candidate_phone, None)
                     except phonenumbers.NumberParseException:
                         # Try parsing with default country code
                         try:
-                            stored_number = phonenumbers.parse(phone, 'NO')
+                            stored_number = phonenumbers.parse(candidate_phone, 'NO')
                         except phonenumbers.NumberParseException:
                             # Skip if the stored phone number is invalid
-                            logger.warning(f"Invalid stored phone number format: {phone}")
+                            logger.warning(f"Invalid stored phone number format for candidate ID {candidate_id}: {candidate_phone}")
                             continue
 
                     normalized_stored_number = phonenumbers.format_number(
                         stored_number, phonenumbers.PhoneNumberFormat.E164
                     )
+                    logger.debug(f"Candidate ID {candidate_id}: Normalized stored phone number: {normalized_stored_number}")
 
                     # Compare the normalized phone numbers
                     if normalized_stored_number == target_phone_number:
@@ -118,18 +128,24 @@ def get_candidate_info_and_url(phone_number):
                             'email': email
                         }
                         candidate_found = True
-                        logger.info(f"Candidate found: {first_name} {last_name}")
+                        logger.info(f"Candidate found: {first_name} {last_name}, ID: {candidate_id}")
                         break
+                else:
+                    logger.debug(f"No phone number for candidate ID {candidate_id}")
 
             # Break if candidate is found
             if candidate_found:
                 break
 
-            # Check for pagination
-            next_cursor = data.get('meta', {}).get('cursors', {}).get('after')
-            if not next_cursor:
-                logger.info("Reached end of candidate list without finding a match.")
+            # Check if there are more pages
+            total_pages = data.get('meta', {}).get('page-count', 1)
+            if page_number >= total_pages:
+                logger.info("Reached the last page of candidates.")
                 break
+
+            # Move to next page
+            page_number += 1
+            logger.debug(f"Moving to page {page_number}")
         else:
             logger.error(f"Error fetching data from Teamtailor: {response.status_code} - {response.text}")
             return jsonify({'error': 'Error fetching data from Teamtailor.'}), response.status_code
