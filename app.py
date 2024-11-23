@@ -110,12 +110,13 @@ def get_candidate_info_and_url(phone_number):
                         first_name = candidate['attributes'].get('first-name', '')
                         last_name = candidate['attributes'].get('last-name', '')
                         email = candidate['attributes'].get('email', '')
+                        candidate_id = candidate['id']
                         candidate_info = {
+                            'candidate_id': candidate_id,
                             'first_name': first_name,
                             'last_name': last_name,
                             'email': email
                         }
-                        candidate_id = candidate['id']
                         candidate_found = True
                         logger.info(f"Candidate found: {first_name} {last_name}")
                         break
@@ -156,10 +157,10 @@ def get_candidate_info_and_url(phone_number):
                         job_id = job_data.get('id')
                         job = jobs_dict.get(job_id)
                         if job:
-                            job_title = job['attributes'].get('title')
+                            job_internal_name = job['attributes'].get('internal-name')
                             applied_jobs.append({
                                 'job_id': job_id,
-                                'job_title': job_title
+                                'internal_name': job_internal_name
                             })
             else:
                 logger.error(f"Error fetching job applications: {response_applications.status_code} - {response_applications.text}")
