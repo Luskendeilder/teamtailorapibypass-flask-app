@@ -31,8 +31,25 @@ def log_request_info():
     logger.info(f"Received {request.method} request for {request.path} from {request.remote_addr}")
     logger.debug(f"Query Parameters: {request.args}")
 
-@app.route('/candidate/<phone_number>', methods=['GET'])
+@app.route('/candidate/', defaults={'phone_number': None})
+@app.route('/candidate/<path:phone_number>', methods=['GET'])
 def get_candidate_info_and_url(phone_number):
+    # If phone_number is None or empty, try to get it from the query string
+    if not phone_number:
+        # Attempt to extract the phone number from the query string
+        # This handles URLs like '/candidate/?96005939'
+        # The query string will be '96005939' without a key
+        query_string = request.query_string.decode('utf-8')
+        logger.debug(f"Query string: {query_string}")
+        if query_string:
+            phone_number = query_string
+        else:
+            return jsonify({'error': 'Phone number is required.'}), 400
+
+    # Remove leading '?' if present
+    if phone_number.startswith('?'):
+        phone_number = phone_number[1:]
+
     # Normalize the input phone number
     try:
         # Attempt to parse with no region first
@@ -71,7 +88,8 @@ def get_candidate_info_and_url(phone_number):
     page_size = 30  # Maximum allowed page size
     params = {
         'page[size]': page_size,
-        'page[number]': 1  # Start with the first page to get meta information
+        'page[number]': 1,  # Start with the first page to get meta information
+        'sort': '-id'       # Sort candidates by most recent
     }
     try:
         response = requests.get('https://api.teamtailor.com/v1/candidates', headers=headers, params=params)
@@ -87,14 +105,10 @@ def get_candidate_info_and_url(phone_number):
     logger.debug(f"Total pages: {total_pages}")
 
     # Start from the last page and move backwards
-    page_number = total_pages
+    page_number = 1
 
-    while page_number >= 1:
-        params = {
-            'page[size]': page_size,
-            'page[number]': page_number
-        }
-
+    while page_number <= total_pages:
+        params['page[number]'] = page_number
         logger.debug(f"Fetching page {page_number}")
 
         try:
@@ -160,8 +174,8 @@ def get_candidate_info_and_url(phone_number):
         if candidate_found:
             break
 
-        # Move to the previous page
-        page_number -= 1
+        # Move to the next page
+        page_number += 1
 
     # If candidate is found, fetch their job applications
     if candidate_found and candidate_id:
