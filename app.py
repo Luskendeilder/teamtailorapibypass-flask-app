@@ -5,7 +5,8 @@ import base64
 import requests
 import logging
 import phonenumbers
-import urllib.parse  # Added for URL decoding
+import urllib.parse
+from datetime import datetime  # Already imported
 
 app = Flask(__name__)
 
@@ -167,11 +168,21 @@ def get_candidate_info_and_url(phone_number):
                     last_name = candidate['attributes'].get('last-name', '')
                     email = candidate['attributes'].get('email', '')
                     candidate_id = candidate['id']
+                    # Extract and format the creation date
+                    created_at = candidate['attributes'].get('created-at', '')
+                    if created_at:
+                        # Parse the datetime string
+                        created_date_obj = datetime.strptime(created_at, '%Y-%m-%dT%H:%M:%S.%f%z')
+                        # Format the date as 'dd-mm-yyyy'
+                        created_date = created_date_obj.strftime('%d-%m-%Y')
+                    else:
+                        created_date = None
                     candidate_info = {
                         'candidate_id': candidate_id,
                         'first_name': first_name,
                         'last_name': last_name,
-                        'email': email
+                        'email': email,
+                        'created_date': created_date  # Date formatted as 'dd-mm-yyyy'
                     }
                     candidate_found = True
                     logger.info(f"Candidate found: {first_name} {last_name}, ID: {candidate_id}")
