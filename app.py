@@ -5,12 +5,13 @@ import base64
 import requests
 import logging
 import phonenumbers
+import urllib.parse  # Added for URL decoding
 
 app = Flask(__name__)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,  # Set to DEBUG for detailed logs
+    level=logging.INFO,  # Set to INFO for production; use DEBUG for detailed logs
     format='%(asctime)s %(levelname)s [%(name)s] %(message)s',
 )
 logger = logging.getLogger(__name__)
@@ -18,6 +19,11 @@ logger = logging.getLogger(__name__)
 # Get environment variables
 API_KEY = os.environ.get('API_KEY')          # Your Teamtailor API key
 COMPANY_ID = os.environ.get('COMPANY_ID')    # Your Teamtailor company ID
+
+# Verify that API_KEY and COMPANY_ID are set
+if not API_KEY or not COMPANY_ID:
+    logger.error("API_KEY and COMPANY_ID must be set as environment variables.")
+    raise EnvironmentError("API_KEY and COMPANY_ID must be set as environment variables.")
 
 # Set up headers for the Teamtailor API
 headers = {
@@ -36,19 +42,22 @@ def log_request_info():
 def get_candidate_info_and_url(phone_number):
     # If phone_number is None or empty, try to get it from the query string
     if not phone_number:
-        # Attempt to extract the phone number from the query string
-        # This handles URLs like '/candidate/?96005939'
-        # The query string will be '96005939' without a key
+        # Extract the phone number from the query string when provided without a key
         query_string = request.query_string.decode('utf-8')
-        logger.debug(f"Query string: {query_string}")
+        logger.debug(f"Raw query string: {query_string}")
         if query_string:
-            phone_number = query_string
+            # URL-decode the query string to handle '%2B' and other encoded characters
+            decoded_query_string = urllib.parse.unquote(query_string)
+            logger.debug(f"Decoded query string: {decoded_query_string}")
+            phone_number = decoded_query_string
         else:
             return jsonify({'error': 'Phone number is required.'}), 400
 
     # Remove leading '?' if present
     if phone_number.startswith('?'):
         phone_number = phone_number[1:]
+
+    logger.debug(f"Extracted phone number: {phone_number}")
 
     # Normalize the input phone number
     try:
@@ -88,7 +97,7 @@ def get_candidate_info_and_url(phone_number):
     page_size = 30  # Maximum allowed page size
     params = {
         'page[size]': page_size,
-        'page[number]': 1,  # Start with the first page to get meta information
+        'page[number]': 1,  # Start with the first page
         'sort': '-id'       # Sort candidates by most recent
     }
     try:
@@ -104,7 +113,7 @@ def get_candidate_info_and_url(phone_number):
     total_pages = data.get('meta', {}).get('page-count', 1)
     logger.debug(f"Total pages: {total_pages}")
 
-    # Start from the last page and move backwards
+    # Iterate through pages
     page_number = 1
 
     while page_number <= total_pages:
@@ -241,4 +250,6 @@ def log_response_info(response):
     return response
 
 if __name__ == '__main__':
-    app.run()
+    # For Heroku, bind to the port assigned by the environment variable PORT
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
